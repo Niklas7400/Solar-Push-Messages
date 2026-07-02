@@ -1,4 +1,5 @@
 huawei-solar>=3.0.0,<4
+tenacity>=8.0  # huawei-solar's tmodbus transport needs this but doesn't declare it
 fusion-solar-py>=0.1.2,<0.2
 httpx>=0.27
 python-dotenv>=1.0
