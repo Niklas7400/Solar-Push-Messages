@@ -169,15 +169,12 @@ journalctl -u solar-push.service -f   # Logs ansehen
 | `COOLDOWN_MINUTES` | Mindestabstand zwischen zwei Benachrichtigungen |
 | `RENOTIFY_MINUTES` | Erinnerung, falls Zustand länger anhält |
 | `GRID_EXPORT_POSITIVE` | Vorzeichen-Kalibrierung Netzleistung, siehe Schritt 4 |
-| `BATTERY_CHARGE_POSITIVE` | Vorzeichen-Kalibrierung Speicher-Lade-/Entladeleistung (noch nicht real verifiziert, siehe Hinweis unten) |
+| `BATTERY_CHARGE_POSITIVE` | Vorzeichen-Kalibrierung Speicher-Lade-/Entladeleistung, siehe Schritt 4 |
 
-**Speicher-Vorzeichen noch nicht verifiziert:** Anders als bei `GRID_EXPORT_POSITIVE`
-(gegen echte Daten bestätigt) beruht `BATTERY_CHARGE_POSITIVE=true` bisher nur auf
-der in der Community üblichen Huawei-Konvention (positiv = Laden). Am
-Testaccount war der Speicher während der Entwicklung durchgehend voll und
-im Leerlauf, ein echter Lade-/Entladevorgang wurde nicht beobachtet. Einmal
-mit `--debug` prüfen, während der Speicher sichtbar lädt oder entlädt
-(z.B. abends beim Entladen), und bei Bedarf auf `false` umstellen.
+`BATTERY_CHARGE_POSITIVE=true` (positiv = Laden) wurde gegen einen echten
+Entladevorgang verifiziert: die Cloud-API meldete einen negativen Rohwert
+(-0.323 kW), während der Speicher nachweislich entlud - die App berechnet
+daraus korrekt eine positive Entladeleistung.
 
 ## Tests
 
