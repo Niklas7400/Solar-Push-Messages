@@ -3,7 +3,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from solar_push.config import load_config
+from solar_push.config import Config, load_config
 from solar_push.inverter import Inverter
 from solar_push.logic import Evaluator
 from solar_push.notifier import Notifier
@@ -12,14 +12,28 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("solar_push")
 
 
-async def run(debug: bool) -> None:
-    config = load_config()
-    inverter = Inverter(
+def _build_inverter(config: Config):
+    if config.data_source == "cloud":
+        from solar_push.cloud_inverter import CloudInverter
+
+        return CloudInverter(
+            username=config.fusion_username,
+            password=config.fusion_password,
+            subdomain=config.fusion_subdomain,
+            plant_id=config.fusion_plant_id,
+            grid_export_positive=config.grid_export_positive,
+        )
+    return Inverter(
         host=config.inverter_host,
         port=config.inverter_port,
         slave_id=config.inverter_slave_id,
         grid_export_positive=config.grid_export_positive,
     )
+
+
+async def run(debug: bool) -> None:
+    config = load_config()
+    inverter = _build_inverter(config)
     notifier = Notifier(config.ntfy_url, config.ntfy_topic)
     evaluator = Evaluator(
         increase_threshold_w=config.increase_threshold_w,
@@ -29,7 +43,10 @@ async def run(debug: bool) -> None:
         renotify_minutes=config.renotify_minutes,
     )
 
-    log.info("Verbinde mit Wechselrichter %s:%s ...", config.inverter_host, config.inverter_port)
+    if config.data_source == "cloud":
+        log.info("Verbinde mit FusionSolar Cloud (%s) ...", config.fusion_subdomain)
+    else:
+        log.info("Verbinde mit Wechselrichter %s:%s ...", config.inverter_host, config.inverter_port)
     await inverter.connect()
     log.info("Verbunden. Starte Abfrage alle %ss.", config.poll_interval_s)
 

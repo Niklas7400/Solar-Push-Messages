@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -23,9 +24,14 @@ def _get_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Config:
-    inverter_host: str
+    data_source: str  # "modbus" or "cloud"
+    inverter_host: Optional[str]
     inverter_port: int
     inverter_slave_id: int
+    fusion_username: Optional[str]
+    fusion_password: Optional[str]
+    fusion_subdomain: str
+    fusion_plant_id: Optional[str]
     ntfy_url: str
     ntfy_topic: str
     poll_interval_s: int
@@ -38,10 +44,30 @@ class Config:
 
 
 def load_config() -> Config:
+    data_source = os.getenv("DATA_SOURCE", "modbus").strip().lower()
+    if data_source not in ("modbus", "cloud"):
+        raise ValueError(f"DATA_SOURCE must be 'modbus' or 'cloud', got {data_source!r}")
+
+    inverter_host = os.getenv("INVERTER_HOST")
+    fusion_username = os.getenv("FUSIONSOLAR_USERNAME")
+    fusion_password = os.getenv("FUSIONSOLAR_PASSWORD")
+
+    if data_source == "modbus" and not inverter_host:
+        raise ValueError("INVERTER_HOST is required when DATA_SOURCE=modbus")
+    if data_source == "cloud" and not (fusion_username and fusion_password):
+        raise ValueError(
+            "FUSIONSOLAR_USERNAME and FUSIONSOLAR_PASSWORD are required when DATA_SOURCE=cloud"
+        )
+
     return Config(
-        inverter_host=os.environ["INVERTER_HOST"],
+        data_source=data_source,
+        inverter_host=inverter_host,
         inverter_port=_get_int("INVERTER_PORT", 502),
         inverter_slave_id=_get_int("INVERTER_SLAVE_ID", 0),
+        fusion_username=fusion_username,
+        fusion_password=fusion_password,
+        fusion_subdomain=os.getenv("FUSIONSOLAR_SUBDOMAIN", "region01eu5"),
+        fusion_plant_id=os.getenv("FUSIONSOLAR_PLANT_ID"),
         ntfy_url=os.getenv("NTFY_URL", "https://ntfy.sh"),
         ntfy_topic=os.environ["NTFY_TOPIC"],
         poll_interval_s=_get_int("POLL_INTERVAL_SECONDS", 60),

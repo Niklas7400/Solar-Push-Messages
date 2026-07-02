@@ -23,7 +23,30 @@ Huawei SUN2000 Wechselrichters.
 PV-Erzeugung, aber keinen Netzwert — dann funktioniert die Kernlogik
 dieses Projekts nicht.
 
+### Alternative: FusionSolar-Cloud statt lokalem Modbus
+
+Falls der Wechselrichter im LAN nicht erreichbar ist (z.B. eigenes
+Solar-/IoT-VLAN ohne Routing zum restlichen Netz), kann `DATA_SOURCE=cloud`
+gesetzt werden. Das nutzt die inoffizielle, reverse-engineered
+[fusion-solar-py](https://pypi.org/project/fusion-solar-py/)-Bibliothek
+gegen dieselbe API, die auch die FusionSolar-Web-Oberfläche verwendet —
+kein LAN-Zugriff nötig, dafür:
+
+- dein FusionSolar-Account-Passwort liegt in der `.env` auf dem Pi
+- Daten sind mit ca. 5 Minuten Verzögerung aktuell (bei häufigem Login-Retry
+  kann die API laut Projekt-Doku ein Captcha verlangen)
+- inoffizielle API, kann sich jederzeit ändern oder abgeschaltet werden
+- die Netzbezug/-einspeisung-Erkennung (`solar_push/cloud_inverter.py`,
+  `_extract_grid_power_w`) ist ein Best-Effort-Parser der undokumentierten
+  `get_plant_flow()`-Antwort und **noch nicht gegen einen echten Account
+  verifiziert**. Vor dem Produktivbetrieb einmal
+  `python scripts/dump_fusion_solar_flow.py` laufen lassen (liest die
+  Zugangsdaten aus `.env`, gibt sie nie aus) und die rohe JSON-Struktur
+  prüfen bzw. mit dem Projekt teilen, um den Parser zu verifizieren.
+
 ## 1. Modbus TCP am Wechselrichter aktivieren
+
+*(Nur relevant für `DATA_SOURCE=modbus`, siehe oben für die Cloud-Alternative.)*
 
 Standardmäßig ist der externe Modbus-TCP-Zugriff auf SUN2000-Geräten
 deaktiviert. Üblicher Weg (kann je nach Firmware/App-Version leicht
@@ -129,7 +152,9 @@ journalctl -u solar-push.service -f   # Logs ansehen
 
 | Variable | Bedeutung |
 |---|---|
-| `INVERTER_HOST` / `INVERTER_PORT` | Adresse des Wechselrichters im lokalen Netz |
+| `DATA_SOURCE` | `modbus` (Standard) oder `cloud` |
+| `INVERTER_HOST` / `INVERTER_PORT` | Adresse des Wechselrichters im lokalen Netz (nur `modbus`) |
+| `FUSIONSOLAR_USERNAME` / `FUSIONSOLAR_PASSWORD` / `FUSIONSOLAR_SUBDOMAIN` / `FUSIONSOLAR_PLANT_ID` | FusionSolar-Account-Zugang (nur `cloud`) |
 | `NTFY_URL` / `NTFY_TOPIC` | ntfy-Server und Topic für Push-Nachrichten |
 | `POLL_INTERVAL_SECONDS` | Abfrageintervall |
 | `INCREASE_THRESHOLD_W` | Ab wie viel Watt Überschuss "jetzt einschalten" gemeldet wird |
