@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from huawei_solar import HuaweiSolarBridge
+from huawei_solar import create_device_instance, create_tcp_client
 from huawei_solar import register_names as rn
+from huawei_solar.device.base import HuaweiSolarDevice
 
 
 @dataclass
@@ -26,28 +27,27 @@ class Inverter:
         self._port = port
         self._slave_id = slave_id
         self._grid_sign = 1 if grid_export_positive else -1
-        self._bridge: Optional[HuaweiSolarBridge] = None
+        self._device: Optional[HuaweiSolarDevice] = None
 
     async def connect(self) -> None:
-        self._bridge = await HuaweiSolarBridge.create(
-            host=self._host, port=self._port, slave_id=self._slave_id
-        )
+        client = await create_tcp_client(self._host, self._port, unit_id=self._slave_id)
+        self._device = await create_device_instance(client)
 
     async def close(self) -> None:
-        if self._bridge is not None:
-            await self._bridge.stop()
+        if self._device is not None:
+            await self._device.stop()
 
     async def read(self) -> InverterReading:
-        assert self._bridge is not None, "call connect() first"
+        assert self._device is not None, "call connect() first"
 
-        pv_power_w = (await self._bridge.batch_update([rn.INPUT_POWER]))[
+        pv_power_w = (await self._device.batch_update([rn.INPUT_POWER]))[
             rn.INPUT_POWER
         ].value
 
         grid_power_w = None
         try:
             raw_grid = (
-                await self._bridge.batch_update([rn.POWER_METER_ACTIVE_POWER])
+                await self._device.batch_update([rn.POWER_METER_ACTIVE_POWER])
             )[rn.POWER_METER_ACTIVE_POWER].value
             grid_power_w = raw_grid * self._grid_sign
         except Exception:
@@ -56,7 +56,7 @@ class Inverter:
         battery_soc_pct = None
         try:
             battery_soc_pct = (
-                await self._bridge.batch_update([rn.STORAGE_STATE_OF_CAPACITY])
+                await self._device.batch_update([rn.STORAGE_STATE_OF_CAPACITY])
             )[rn.STORAGE_STATE_OF_CAPACITY].value
         except Exception:
             pass  # no battery installed / not readable
