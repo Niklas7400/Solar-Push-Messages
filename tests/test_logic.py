@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from solar_push.logic import Evaluator, GridState
+from solar_push.logic import Evaluator, ThresholdWatcher
 
 
 def make_evaluator(**overrides):
@@ -8,6 +8,8 @@ def make_evaluator(**overrides):
         increase_threshold_w=1000,
         decrease_threshold_w=1000,
         hysteresis_w=200,
+        battery_low_soc_pct=95,
+        battery_low_hysteresis_pct=2,
         cooldown_minutes=15,
         renotify_minutes=45,
     )
@@ -15,69 +17,103 @@ def make_evaluator(**overrides):
     return Evaluator(**defaults)
 
 
-def test_normal_power_does_not_notify():
+def titles(decisions):
+    return [d.title for d in decisions]
+
+
+def test_normal_values_do_not_notify():
     ev = make_evaluator()
-    decision = ev.evaluate(500, now=datetime(2024, 1, 1, 12, 0))
-    assert decision.state == GridState.NORMAL
-    assert decision.should_notify is False
+    decisions = ev.evaluate(
+        grid_power_w=500, battery_discharge_w=200, battery_soc_pct=98, now=datetime(2024, 1, 1, 12, 0)
+    )
+    assert decisions == []
 
 
 def test_surplus_crossing_threshold_notifies_once():
     ev = make_evaluator()
     t0 = datetime(2024, 1, 1, 12, 0)
-    d1 = ev.evaluate(1500, now=t0)
-    assert d1.state == GridState.SURPLUS
-    assert d1.should_notify is True
-    assert "Strom" in d1.title
+    d1 = ev.evaluate(grid_power_w=1500, now=t0)
+    assert "☀️ Stromüberschuss" in titles(d1)
 
-    d2 = ev.evaluate(1600, now=t0 + timedelta(minutes=1))
-    assert d2.state == GridState.SURPLUS
-    assert d2.should_notify is False  # still in cooldown / not due for renotify
+    d2 = ev.evaluate(grid_power_w=1600, now=t0 + timedelta(minutes=1))
+    assert d2 == []  # still in cooldown / not due for renotify
 
 
-def test_deficit_crossing_threshold_notifies():
+def test_battery_drain_crossing_threshold_notifies():
     ev = make_evaluator()
     t0 = datetime(2024, 1, 1, 18, 0)
-    d1 = ev.evaluate(-1500, now=t0)
-    assert d1.state == GridState.DEFICIT
-    assert d1.should_notify is True
-    assert "Netzbezug" in d1.title
+    d1 = ev.evaluate(battery_discharge_w=1500, now=t0)
+    assert "⚠️ Speicher wird stark entladen" in titles(d1)
+
+
+def test_battery_low_soc_notifies():
+    ev = make_evaluator()
+    t0 = datetime(2024, 1, 1, 20, 0)
+    d1 = ev.evaluate(battery_soc_pct=90, now=t0)
+    assert "🔋 Speicher niedrig" in titles(d1)
+
+
+def test_grid_and_battery_signals_are_independent():
+    ev = make_evaluator()
+    t0 = datetime(2024, 1, 1, 12, 0)
+    decisions = ev.evaluate(grid_power_w=1500, battery_discharge_w=1500, battery_soc_pct=90, now=t0)
+    assert set(titles(decisions)) == {
+        "☀️ Stromüberschuss",
+        "⚠️ Speicher wird stark entladen",
+        "🔋 Speicher niedrig",
+    }
 
 
 def test_hysteresis_prevents_flapping_near_threshold():
-    ev = make_evaluator()
+    watcher = ThresholdWatcher(
+        threshold=1000, hysteresis=200, cooldown_minutes=15, renotify_minutes=45, direction="above"
+    )
     t0 = datetime(2024, 1, 1, 12, 0)
-    ev.evaluate(1500, now=t0)  # enters SURPLUS
+    assert watcher.evaluate(1500, now=t0) is True  # enters active state, notifies
 
     # Dips just below the raw threshold but still within the hysteresis band.
-    d2 = ev.evaluate(900, now=t0 + timedelta(minutes=1))
-    assert d2.state == GridState.SURPLUS
-    assert d2.should_notify is False
+    assert watcher.evaluate(900, now=t0 + timedelta(minutes=1)) is False
 
-    # Drops below threshold - hysteresis -> back to NORMAL, no notification.
-    d3 = ev.evaluate(700, now=t0 + timedelta(minutes=2))
-    assert d3.state == GridState.NORMAL
-    assert d3.should_notify is False
+    # Drops below threshold - hysteresis -> back to inactive, no notification.
+    assert watcher.evaluate(700, now=t0 + timedelta(minutes=2)) is False
 
 
-def test_renotify_after_interval_while_still_in_surplus():
-    ev = make_evaluator()
+def test_renotify_after_interval_while_condition_persists():
+    watcher = ThresholdWatcher(
+        threshold=1000, hysteresis=200, cooldown_minutes=15, renotify_minutes=45, direction="above"
+    )
     t0 = datetime(2024, 1, 1, 12, 0)
-    ev.evaluate(1500, now=t0)
+    assert watcher.evaluate(1500, now=t0) is True
 
-    too_soon = ev.evaluate(1500, now=t0 + timedelta(minutes=20))
-    assert too_soon.should_notify is False
+    too_soon = watcher.evaluate(1500, now=t0 + timedelta(minutes=20))
+    assert too_soon is False
 
-    due = ev.evaluate(1500, now=t0 + timedelta(minutes=46))
-    assert due.should_notify is True
+    due = watcher.evaluate(1500, now=t0 + timedelta(minutes=46))
+    assert due is True
 
 
 def test_cooldown_blocks_immediate_flap_renotify():
-    ev = make_evaluator(cooldown_minutes=15, renotify_minutes=1)
+    watcher = ThresholdWatcher(
+        threshold=1000, hysteresis=200, cooldown_minutes=15, renotify_minutes=1, direction="above"
+    )
     t0 = datetime(2024, 1, 1, 12, 0)
-    ev.evaluate(1500, now=t0)  # SURPLUS, notifies
+    assert watcher.evaluate(1500, now=t0) is True  # notifies
 
-    # Flap to DEFICIT and back within the cooldown window - should not spam.
-    ev.evaluate(-1500, now=t0 + timedelta(minutes=1))
-    d = ev.evaluate(1500, now=t0 + timedelta(minutes=2))
-    assert d.should_notify is False
+    # Flap below and back above within the cooldown window - should not spam.
+    watcher.evaluate(700, now=t0 + timedelta(minutes=1))
+    assert watcher.evaluate(1500, now=t0 + timedelta(minutes=2)) is False
+
+
+def test_below_direction_for_low_battery_soc():
+    watcher = ThresholdWatcher(
+        threshold=95, hysteresis=2, cooldown_minutes=15, renotify_minutes=45, direction="below"
+    )
+    t0 = datetime(2024, 1, 1, 12, 0)
+    assert watcher.evaluate(98, now=t0) is False  # above threshold, not low
+    assert watcher.evaluate(90, now=t0 + timedelta(minutes=1)) is True  # crosses below, notifies
+
+    # Recovers just above threshold but within hysteresis band -> stays "low".
+    assert watcher.evaluate(96, now=t0 + timedelta(minutes=2)) is False
+
+    # Recovers past the hysteresis band -> no longer low.
+    assert watcher.evaluate(98, now=t0 + timedelta(minutes=3)) is False

@@ -22,12 +22,14 @@ def _build_inverter(config: Config):
             subdomain=config.fusion_subdomain,
             plant_id=config.fusion_plant_id,
             grid_export_positive=config.grid_export_positive,
+            battery_charge_positive=config.battery_charge_positive,
         )
     return Inverter(
         host=config.inverter_host,
         port=config.inverter_port,
         slave_id=config.inverter_slave_id,
         grid_export_positive=config.grid_export_positive,
+        battery_charge_positive=config.battery_charge_positive,
     )
 
 
@@ -39,6 +41,8 @@ async def run(debug: bool) -> None:
         increase_threshold_w=config.increase_threshold_w,
         decrease_threshold_w=config.decrease_threshold_w,
         hysteresis_w=config.hysteresis_w,
+        battery_low_soc_pct=config.battery_low_soc_pct,
+        battery_low_hysteresis_pct=config.battery_low_hysteresis_pct,
         cooldown_minutes=config.cooldown_minutes,
         renotify_minutes=config.renotify_minutes,
     )
@@ -54,21 +58,27 @@ async def run(debug: bool) -> None:
         while True:
             reading = await inverter.read()
             log.info(
-                "PV=%.0fW Grid=%s Batterie=%s%%",
+                "PV=%.0fW Grid=%s Batterie=%s%% Speicherleistung=%s",
                 reading.pv_power_w,
                 f"{reading.grid_power_w:.0f}W" if reading.grid_power_w is not None else "n/a",
                 f"{reading.battery_soc_pct:.0f}" if reading.battery_soc_pct is not None else "n/a",
+                f"{reading.battery_discharge_w:.0f}W" if reading.battery_discharge_w is not None else "n/a",
             )
 
-            if reading.grid_power_w is None:
+            if reading.grid_power_w is None and reading.battery_discharge_w is None:
                 log.warning(
-                    "Kein Netz-Leistungsmesswert verfügbar (kein Smart Power Sensor "
-                    "am Wechselrichter?). Benachrichtigungen sind ohne diesen Wert "
-                    "nicht möglich."
+                    "Weder Netz- noch Speicher-Leistungsmesswert verfügbar. "
+                    "Benachrichtigungen sind ohne mindestens einen davon nicht möglich."
                 )
-            elif not debug:
-                decision = evaluator.evaluate(reading.grid_power_w, now=datetime.now())
-                if decision.should_notify:
+
+            if not debug:
+                decisions = evaluator.evaluate(
+                    grid_power_w=reading.grid_power_w,
+                    battery_discharge_w=reading.battery_discharge_w,
+                    battery_soc_pct=reading.battery_soc_pct,
+                    now=datetime.now(),
+                )
+                for decision in decisions:
                     log.info("Sende Benachrichtigung: %s", decision.title)
                     notifier.send(decision.title, decision.message)
 

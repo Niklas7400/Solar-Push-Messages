@@ -35,6 +35,13 @@ class CloudInverter:
     verified against a real account to carry the same sign convention as the
     local Modbus power_meter_active_power register (positive = exporting to
     the grid), since it's the same physical Smart Power Sensor either way.
+
+    battery_discharge_w follows the "discharging is positive" convention.
+    get_battery_basic_stats().current_charge_discharge_kw is commonly
+    documented as positive-while-charging for Huawei systems, so the sign
+    is normalized here based on battery_charge_positive - not yet verified
+    against a real charge/discharge event (the test account's battery was
+    idle), flip it if it comes out backwards in practice.
     """
 
     def __init__(
@@ -44,12 +51,14 @@ class CloudInverter:
         subdomain: str,
         plant_id: Optional[str],
         grid_export_positive: bool,
+        battery_charge_positive: bool = True,
     ):
         self._username = username
         self._password = password
         self._subdomain = subdomain
         self._plant_id = plant_id
         self._grid_sign = 1 if grid_export_positive else -1
+        self._battery_discharge_sign = -1 if battery_charge_positive else 1
         self._client: Optional[FusionSolarClient] = None
         self._meter_dn: Optional[str] = None
         self._battery_id: Optional[str] = None
@@ -101,12 +110,16 @@ class CloudInverter:
                 log.debug("Failed to read grid power from FusionSolar meter", exc_info=True)
 
         battery_soc_pct = None
+        battery_discharge_w = None
         if self._battery_id is not None:
             try:
                 battery_status = await asyncio.to_thread(
                     self._client.get_battery_basic_stats, self._battery_id
                 )
                 battery_soc_pct = battery_status.state_of_charge
+                battery_discharge_w = (
+                    battery_status.current_charge_discharge_kw * 1000 * self._battery_discharge_sign
+                )
             except Exception:
                 log.debug("Failed to read battery status from FusionSolar", exc_info=True)
 
@@ -114,4 +127,5 @@ class CloudInverter:
             pv_power_w=pv_power_w,
             grid_power_w=grid_power_w,
             battery_soc_pct=battery_soc_pct,
+            battery_discharge_w=battery_discharge_w,
         )

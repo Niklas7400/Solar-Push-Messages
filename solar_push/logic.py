@@ -1,70 +1,59 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum, auto
-from typing import Optional
-
-
-class GridState(Enum):
-    NORMAL = auto()
-    SURPLUS = auto()  # exporting power -> good time to increase consumption
-    DEFICIT = auto()  # importing power -> should reduce consumption
+from typing import List, Optional
 
 
 @dataclass
 class Decision:
-    state: GridState
-    should_notify: bool
-    title: Optional[str] = None
-    message: Optional[str] = None
+    title: str
+    message: str
 
 
-class Evaluator:
-    """Turns a grid power reading into a notify/don't-notify decision.
+class ThresholdWatcher:
+    """Tracks whether a value has crossed a threshold and decides when to notify.
 
-    Uses hysteresis around the thresholds (to avoid flapping when the power
-    value hovers right at the limit) plus a cooldown and a re-notify
-    interval (so a sustained surplus/deficit reminds the user again after a
-    while instead of firing once and going silent).
+    Uses hysteresis around the threshold (to avoid flapping when the value
+    hovers right at the limit) plus a cooldown and a re-notify interval (so
+    a sustained condition reminds the user again after a while instead of
+    firing once and going silent).
+
+    direction="above": active while value >= threshold (e.g. surplus power).
+    direction="below": active while value <= threshold (e.g. low battery SOC).
     """
 
     def __init__(
         self,
-        increase_threshold_w: float,
-        decrease_threshold_w: float,
-        hysteresis_w: float,
+        threshold: float,
+        hysteresis: float,
         cooldown_minutes: int,
         renotify_minutes: int,
+        direction: str = "above",
     ):
-        self._increase_threshold = increase_threshold_w
-        self._decrease_threshold = decrease_threshold_w
-        self._hysteresis = hysteresis_w
+        if direction not in ("above", "below"):
+            raise ValueError("direction must be 'above' or 'below'")
+        self._threshold = threshold
+        self._hysteresis = hysteresis
         self._cooldown = timedelta(minutes=cooldown_minutes)
         self._renotify = timedelta(minutes=renotify_minutes)
-        self._state = GridState.NORMAL
+        self._direction = direction
+        self._active = False
         self._last_notified_at: Optional[datetime] = None
 
-    def _classify_from_normal(self, grid_power_w: float) -> GridState:
-        if grid_power_w >= self._increase_threshold:
-            return GridState.SURPLUS
-        if grid_power_w <= -self._decrease_threshold:
-            return GridState.DEFICIT
-        return GridState.NORMAL
+    def _crosses(self, value: float) -> bool:
+        if self._direction == "above":
+            return value >= self._threshold
+        return value <= self._threshold
 
-    def _next_state(self, grid_power_w: float) -> GridState:
-        if self._state == GridState.SURPLUS:
-            if grid_power_w >= self._increase_threshold - self._hysteresis:
-                return GridState.SURPLUS
-            return self._classify_from_normal(grid_power_w)
-        if self._state == GridState.DEFICIT:
-            if grid_power_w <= -self._decrease_threshold + self._hysteresis:
-                return GridState.DEFICIT
-            return self._classify_from_normal(grid_power_w)
-        return self._classify_from_normal(grid_power_w)
+    def _stays_active(self, value: float) -> bool:
+        if self._direction == "above":
+            return value >= self._threshold - self._hysteresis
+        return value <= self._threshold + self._hysteresis
 
-    def evaluate(self, grid_power_w: float, now: Optional[datetime] = None) -> Decision:
+    def evaluate(self, value: float, now: Optional[datetime] = None) -> bool:
+        """Update state for the latest value and return whether to notify now."""
         now = now or datetime.now()
-        new_state = self._next_state(grid_power_w)
-        state_changed = new_state != self._state
+        new_active = self._stays_active(value) if self._active else self._crosses(value)
+        became_active = new_active and not self._active
 
         cooldown_over = (
             self._last_notified_at is None or now - self._last_notified_at >= self._cooldown
@@ -73,27 +62,88 @@ class Evaluator:
             self._last_notified_at is not None and now - self._last_notified_at >= self._renotify
         )
 
-        should_notify = False
-        title = None
-        message = None
+        should_notify = new_active and cooldown_over and (became_active or due_for_renotify)
 
-        if new_state != GridState.NORMAL and cooldown_over and (state_changed or due_for_renotify):
-            should_notify = True
-            if new_state == GridState.SURPLUS:
-                title = "☀️ Stromüberschuss"
-                message = (
-                    f"Aktuell {grid_power_w:.0f} W Überschuss – jetzt Verbraucher "
-                    "einschalten (Waschmaschine, Trockner, Wärmepumpe, Laden...)."
-                )
-            else:
-                title = "⚠️ Netzbezug hoch"
-                message = (
-                    f"Aktuell {abs(grid_power_w):.0f} W Bezug vom Netz – "
-                    "Verbrauch reduzieren empfohlen."
-                )
-
-        self._state = new_state
+        self._active = new_active
         if should_notify:
             self._last_notified_at = now
 
-        return Decision(state=new_state, should_notify=should_notify, title=title, message=message)
+        return should_notify
+
+
+class Evaluator:
+    """Turns live inverter readings into a list of notifications to send.
+
+    Three independent conditions, each with its own hysteresis/cooldown/renotify:
+    - grid surplus (grid_power_w >= increase_threshold_w): good time to use power.
+    - battery draining fast (battery_discharge_w >= decrease_threshold_w): reduce
+      consumption before the battery runs low and the grid has to pick up the load.
+    - battery low (battery_soc_pct <= battery_low_soc_pct): plan around it.
+    """
+
+    def __init__(
+        self,
+        increase_threshold_w: float,
+        decrease_threshold_w: float,
+        hysteresis_w: float,
+        battery_low_soc_pct: float,
+        battery_low_hysteresis_pct: float,
+        cooldown_minutes: int,
+        renotify_minutes: int,
+    ):
+        self._surplus = ThresholdWatcher(
+            increase_threshold_w, hysteresis_w, cooldown_minutes, renotify_minutes, "above"
+        )
+        self._battery_drain = ThresholdWatcher(
+            decrease_threshold_w, hysteresis_w, cooldown_minutes, renotify_minutes, "above"
+        )
+        self._battery_low = ThresholdWatcher(
+            battery_low_soc_pct,
+            battery_low_hysteresis_pct,
+            cooldown_minutes,
+            renotify_minutes,
+            "below",
+        )
+
+    def evaluate(
+        self,
+        grid_power_w: Optional[float] = None,
+        battery_discharge_w: Optional[float] = None,
+        battery_soc_pct: Optional[float] = None,
+        now: Optional[datetime] = None,
+    ) -> List[Decision]:
+        decisions: List[Decision] = []
+
+        if grid_power_w is not None and self._surplus.evaluate(grid_power_w, now):
+            decisions.append(
+                Decision(
+                    title="☀️ Stromüberschuss",
+                    message=(
+                        f"Aktuell {grid_power_w:.0f} W Überschuss – jetzt Verbraucher "
+                        "einschalten (Waschmaschine, Trockner, Wärmepumpe, Laden...)."
+                    ),
+                )
+            )
+
+        if battery_discharge_w is not None and self._battery_drain.evaluate(
+            battery_discharge_w, now
+        ):
+            decisions.append(
+                Decision(
+                    title="⚠️ Speicher wird stark entladen",
+                    message=(
+                        f"Aktuell {battery_discharge_w:.0f} W Entladeleistung aus dem "
+                        "Speicher – Verbrauch reduzieren empfohlen."
+                    ),
+                )
+            )
+
+        if battery_soc_pct is not None and self._battery_low.evaluate(battery_soc_pct, now):
+            decisions.append(
+                Decision(
+                    title="🔋 Speicher niedrig",
+                    message=f"Ladestand aktuell {battery_soc_pct:.0f} %.",
+                )
+            )
+
+        return decisions

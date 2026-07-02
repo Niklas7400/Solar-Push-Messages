@@ -160,12 +160,22 @@ journalctl -u solar-push.service -f   # Logs ansehen
 | `FUSIONSOLAR_USERNAME` / `FUSIONSOLAR_PASSWORD` / `FUSIONSOLAR_SUBDOMAIN` / `FUSIONSOLAR_PLANT_ID` | FusionSolar-Account-Zugang (nur `cloud`) |
 | `NTFY_URL` / `NTFY_TOPIC` | ntfy-Server und Topic für Push-Nachrichten |
 | `POLL_INTERVAL_SECONDS` | Abfrageintervall |
-| `INCREASE_THRESHOLD_W` | Ab wie viel Watt Überschuss "jetzt einschalten" gemeldet wird |
-| `DECREASE_THRESHOLD_W` | Ab wie viel Watt Netzbezug "Verbrauch senken" gemeldet wird |
-| `HYSTERESIS_W` | Puffer gegen Flattern nahe der Schwelle |
+| `INCREASE_THRESHOLD_W` | Ab wie viel Watt **Netz-Überschuss** "jetzt einschalten" gemeldet wird |
+| `DECREASE_THRESHOLD_W` | Ab wie viel Watt **Speicher-Entladeleistung** "Verbrauch senken" gemeldet wird (nicht Netzbezug) |
+| `BATTERY_LOW_SOC_PCT` / `BATTERY_LOW_HYSTERESIS_PCT` | Ab welchem Ladestand (%) der Speicher als "niedrig" gemeldet wird, plus Puffer |
+| `HYSTERESIS_W` | Puffer gegen Flattern nahe den Watt-Schwellen |
 | `COOLDOWN_MINUTES` | Mindestabstand zwischen zwei Benachrichtigungen |
 | `RENOTIFY_MINUTES` | Erinnerung, falls Zustand länger anhält |
-| `GRID_EXPORT_POSITIVE` | Vorzeichen-Kalibrierung, siehe Schritt 4 |
+| `GRID_EXPORT_POSITIVE` | Vorzeichen-Kalibrierung Netzleistung, siehe Schritt 4 |
+| `BATTERY_CHARGE_POSITIVE` | Vorzeichen-Kalibrierung Speicher-Lade-/Entladeleistung (noch nicht real verifiziert, siehe Hinweis unten) |
+
+**Speicher-Vorzeichen noch nicht verifiziert:** Anders als bei `GRID_EXPORT_POSITIVE`
+(gegen echte Daten bestätigt) beruht `BATTERY_CHARGE_POSITIVE=true` bisher nur auf
+der in der Community üblichen Huawei-Konvention (positiv = Laden). Am
+Testaccount war der Speicher während der Entwicklung durchgehend voll und
+im Leerlauf, ein echter Lade-/Entladevorgang wurde nicht beobachtet. Einmal
+mit `--debug` prüfen, während der Speicher sichtbar lädt oder entlädt
+(z.B. abends beim Entladen), und bei Bedarf auf `false` umstellen.
 
 ## Tests
 

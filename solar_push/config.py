@@ -38,9 +38,12 @@ class Config:
     increase_threshold_w: float
     decrease_threshold_w: float
     hysteresis_w: float
+    battery_low_soc_pct: float
+    battery_low_hysteresis_pct: float
     cooldown_minutes: int
     renotify_minutes: int
     grid_export_positive: bool
+    battery_charge_positive: bool
 
 
 def load_config() -> Config:
@@ -74,7 +77,10 @@ def load_config() -> Config:
         increase_threshold_w=_get_float("INCREASE_THRESHOLD_W", 1000),
         decrease_threshold_w=_get_float("DECREASE_THRESHOLD_W", 1000),
         hysteresis_w=_get_float("HYSTERESIS_W", 200),
+        battery_low_soc_pct=_get_float("BATTERY_LOW_SOC_PCT", 95),
+        battery_low_hysteresis_pct=_get_float("BATTERY_LOW_HYSTERESIS_PCT", 2),
         cooldown_minutes=_get_int("COOLDOWN_MINUTES", 15),
         renotify_minutes=_get_int("RENOTIFY_MINUTES", 45),
         grid_export_positive=_get_bool("GRID_EXPORT_POSITIVE", True),
+        battery_charge_positive=_get_bool("BATTERY_CHARGE_POSITIVE", True),
     )

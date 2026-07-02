@@ -11,6 +11,7 @@ class InverterReading:
     pv_power_w: float
     grid_power_w: Optional[float]
     battery_soc_pct: Optional[float]
+    battery_discharge_w: Optional[float]
 
 
 class Inverter:
@@ -20,13 +21,28 @@ class Inverter:
     power is flowing out to the grid, negative means power is being drawn
     from the grid. Raw meter polarity varies by installation, so the sign is
     normalized here based on Config.grid_export_positive.
+
+    battery_discharge_w follows the "discharging is positive" convention.
+    Huawei's storage_charge_discharge_power register is commonly documented
+    as positive-while-charging (e.g. the sunsynk-power-flow-card Huawei
+    presets need invert_power=true for it), so the sign is normalized here
+    based on Config.battery_charge_positive - verify with --debug against a
+    known charge/discharge state and flip it if it comes out backwards.
     """
 
-    def __init__(self, host: str, port: int, slave_id: int, grid_export_positive: bool):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        slave_id: int,
+        grid_export_positive: bool,
+        battery_charge_positive: bool = True,
+    ):
         self._host = host
         self._port = port
         self._slave_id = slave_id
         self._grid_sign = 1 if grid_export_positive else -1
+        self._battery_discharge_sign = -1 if battery_charge_positive else 1
         self._device: Optional[HuaweiSolarDevice] = None
 
     async def connect(self) -> None:
@@ -61,8 +77,18 @@ class Inverter:
         except Exception:
             pass  # no battery installed / not readable
 
+        battery_discharge_w = None
+        try:
+            raw_battery_power = (
+                await self._device.batch_update([rn.STORAGE_CHARGE_DISCHARGE_POWER])
+            )[rn.STORAGE_CHARGE_DISCHARGE_POWER].value
+            battery_discharge_w = raw_battery_power * self._battery_discharge_sign
+        except Exception:
+            pass  # no battery installed / not readable
+
         return InverterReading(
             pv_power_w=pv_power_w,
             grid_power_w=grid_power_w,
             battery_soc_pct=battery_soc_pct,
+            battery_discharge_w=battery_discharge_w,
         )
