@@ -88,6 +88,7 @@ class CloudInverter:
             self._battery_id = battery_ids[0] if battery_ids else None
         except Exception:
             self._battery_id = None  # no battery installed / not readable
+            log.warning("Failed to discover battery for FusionSolar plant", exc_info=True)
 
     async def close(self) -> None:
         if self._client is not None:
@@ -107,7 +108,7 @@ class CloudInverter:
                 if grid_power_w is not None:
                     grid_power_w *= self._grid_sign
             except Exception:
-                log.debug("Failed to read grid power from FusionSolar meter", exc_info=True)
+                log.warning("Failed to read grid power from FusionSolar meter", exc_info=True)
 
         battery_soc_pct = None
         battery_discharge_w = None
@@ -121,7 +122,7 @@ class CloudInverter:
                     battery_status.current_charge_discharge_kw * 1000 * self._battery_discharge_sign
                 )
             except Exception:
-                log.debug("Failed to read battery status from FusionSolar", exc_info=True)
+                log.warning("Failed to read battery status from FusionSolar", exc_info=True)
 
         return InverterReading(
             pv_power_w=pv_power_w,

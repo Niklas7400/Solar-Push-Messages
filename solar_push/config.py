@@ -55,9 +55,9 @@ def load_config() -> Config:
     if data_source not in ("modbus", "cloud"):
         raise ValueError(f"DATA_SOURCE must be 'modbus' or 'cloud', got {data_source!r}")
 
-    inverter_host = os.getenv("INVERTER_HOST")
-    fusion_username = os.getenv("FUSIONSOLAR_USERNAME")
-    fusion_password = os.getenv("FUSIONSOLAR_PASSWORD")
+    inverter_host = os.getenv("INVERTER_HOST") or None
+    fusion_username = os.getenv("FUSIONSOLAR_USERNAME") or None
+    fusion_password = os.getenv("FUSIONSOLAR_PASSWORD") or None
 
     if data_source == "modbus" and not inverter_host:
         raise ValueError("INVERTER_HOST is required when DATA_SOURCE=modbus")
@@ -74,7 +74,7 @@ def load_config() -> Config:
         fusion_username=fusion_username,
         fusion_password=fusion_password,
         fusion_subdomain=os.getenv("FUSIONSOLAR_SUBDOMAIN", "region01eu5"),
-        fusion_plant_id=os.getenv("FUSIONSOLAR_PLANT_ID"),
+        fusion_plant_id=os.getenv("FUSIONSOLAR_PLANT_ID") or None,
         ntfy_url=os.getenv("NTFY_URL", "https://ntfy.sh"),
         ntfy_topic=os.environ["NTFY_TOPIC"],
         poll_interval_s=_get_int("POLL_INTERVAL_SECONDS", 60),
