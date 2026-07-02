@@ -163,6 +163,8 @@ journalctl -u solar-push.service -f   # Logs ansehen
 | `INCREASE_THRESHOLD_W` | Ab wie viel Watt **Netz-Überschuss** "jetzt einschalten" gemeldet wird |
 | `DECREASE_THRESHOLD_W` | Ab wie viel Watt **Speicher-Entladeleistung** "Verbrauch senken" gemeldet wird (nicht Netzbezug) |
 | `BATTERY_LOW_SOC_PCT` / `BATTERY_LOW_HYSTERESIS_PCT` | Ab welchem Ladestand (%) der Speicher als "niedrig" gemeldet wird, plus Puffer |
+| `GRID_IMPORT_ALERT_W` / `GRID_IMPORT_ALERT_MIN_PV_W` | Ab wie viel Watt Netzbezug eine Anomalie-Warnung kommt, nur solange mindestens so viel PV-Leistung anliegt (sonst würde es jede Nacht auslösen) |
+| `DAILY_SUMMARY_ENABLED` / `DAILY_SUMMARY_HOUR` | Tägliche Zusammenfassung (PV-Ertrag, Einspeisung, Netzbezug) ab dieser Uhrzeit |
 | `HYSTERESIS_W` | Puffer gegen Flattern nahe den Watt-Schwellen |
 | `COOLDOWN_MINUTES` | Mindestabstand zwischen zwei Benachrichtigungen |
 | `RENOTIFY_MINUTES` | Erinnerung, falls Zustand länger anhält |

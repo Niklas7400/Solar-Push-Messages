@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 
 from solar_push.config import Config, load_config
+from solar_push.daily_summary import DailyEnergyTracker
 from solar_push.inverter import Inverter
 from solar_push.logic import Evaluator
 from solar_push.notifier import Notifier
@@ -43,9 +44,12 @@ async def run(debug: bool) -> None:
         hysteresis_w=config.hysteresis_w,
         battery_low_soc_pct=config.battery_low_soc_pct,
         battery_low_hysteresis_pct=config.battery_low_hysteresis_pct,
+        grid_import_alert_w=config.grid_import_alert_w,
+        grid_import_alert_min_pv_w=config.grid_import_alert_min_pv_w,
         cooldown_minutes=config.cooldown_minutes,
         renotify_minutes=config.renotify_minutes,
     )
+    daily_tracker = DailyEnergyTracker(config.daily_summary_hour) if config.daily_summary_enabled else None
 
     if config.data_source == "cloud":
         log.info("Verbinde mit FusionSolar Cloud (%s) ...", config.fusion_subdomain)
@@ -71,16 +75,26 @@ async def run(debug: bool) -> None:
                     "Benachrichtigungen sind ohne mindestens einen davon nicht möglich."
                 )
 
+            now = datetime.now()
+            if daily_tracker is not None:
+                daily_tracker.add(reading.pv_power_w, reading.grid_power_w, config.poll_interval_s, now)
+
             if not debug:
                 decisions = evaluator.evaluate(
                     grid_power_w=reading.grid_power_w,
                     battery_discharge_w=reading.battery_discharge_w,
                     battery_soc_pct=reading.battery_soc_pct,
-                    now=datetime.now(),
+                    pv_power_w=reading.pv_power_w,
+                    now=now,
                 )
+                if daily_tracker is not None:
+                    summary = daily_tracker.maybe_build_summary(now)
+                    if summary is not None:
+                        decisions.append(summary)
+
                 for decision in decisions:
                     log.info("Sende Benachrichtigung: %s", decision.title)
-                    notifier.send(decision.title, decision.message)
+                    notifier.send(decision.title, decision.message, priority=decision.priority)
 
             await asyncio.sleep(config.poll_interval_s)
     finally:

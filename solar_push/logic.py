@@ -7,6 +7,7 @@ from typing import List, Optional
 class Decision:
     title: str
     message: str
+    priority: str = "default"  # ntfy priority: min|low|default|high|urgent
 
 
 class ThresholdWatcher:
@@ -71,14 +72,27 @@ class ThresholdWatcher:
         return should_notify
 
 
+def _context_suffix(pv_power_w: Optional[float], battery_soc_pct: Optional[float] = None) -> str:
+    bits = []
+    if pv_power_w is not None:
+        bits.append(f"PV: {pv_power_w:.0f} W")
+    if battery_soc_pct is not None:
+        bits.append(f"Speicher: {battery_soc_pct:.0f} %")
+    return f"\n\n{' | '.join(bits)}" if bits else ""
+
+
 class Evaluator:
     """Turns live inverter readings into a list of notifications to send.
 
-    Three independent conditions, each with its own hysteresis/cooldown/renotify:
+    Four independent conditions, each with its own hysteresis/cooldown/renotify:
     - grid surplus (grid_power_w >= increase_threshold_w): good time to use power.
     - battery draining fast (battery_discharge_w >= decrease_threshold_w): reduce
       consumption before the battery runs low and the grid has to pick up the load.
     - battery low (battery_soc_pct <= battery_low_soc_pct): plan around it.
+    - unexpected grid import (grid_power_w <= -grid_import_alert_w), only while
+      pv_power_w >= grid_import_alert_min_pv_w: flags a notable draw from the
+      grid despite the sun being up, when PV (+ battery) should normally cover
+      it. Not gated on daylight, this would fire every night as PV drops to 0.
     """
 
     def __init__(
@@ -88,9 +102,12 @@ class Evaluator:
         hysteresis_w: float,
         battery_low_soc_pct: float,
         battery_low_hysteresis_pct: float,
+        grid_import_alert_w: float,
+        grid_import_alert_min_pv_w: float,
         cooldown_minutes: int,
         renotify_minutes: int,
     ):
+        self._grid_import_alert_min_pv_w = grid_import_alert_min_pv_w
         self._surplus = ThresholdWatcher(
             increase_threshold_w, hysteresis_w, cooldown_minutes, renotify_minutes, "above"
         )
@@ -104,12 +121,16 @@ class Evaluator:
             renotify_minutes,
             "below",
         )
+        self._grid_import = ThresholdWatcher(
+            -grid_import_alert_w, hysteresis_w, cooldown_minutes, renotify_minutes, "below"
+        )
 
     def evaluate(
         self,
         grid_power_w: Optional[float] = None,
         battery_discharge_w: Optional[float] = None,
         battery_soc_pct: Optional[float] = None,
+        pv_power_w: Optional[float] = None,
         now: Optional[datetime] = None,
     ) -> List[Decision]:
         decisions: List[Decision] = []
@@ -121,6 +142,7 @@ class Evaluator:
                     message=(
                         f"Aktuell {grid_power_w:.0f} W Überschuss – jetzt Verbraucher "
                         "einschalten (Waschmaschine, Trockner, Wärmepumpe, Laden...)."
+                        + _context_suffix(pv_power_w, battery_soc_pct)
                     ),
                 )
             )
@@ -134,6 +156,7 @@ class Evaluator:
                     message=(
                         f"Aktuell {battery_discharge_w:.0f} W Entladeleistung aus dem "
                         "Speicher – Verbrauch reduzieren empfohlen."
+                        + _context_suffix(pv_power_w, battery_soc_pct)
                     ),
                 )
             )
@@ -142,8 +165,30 @@ class Evaluator:
             decisions.append(
                 Decision(
                     title="🔋 Speicher niedrig",
-                    message=f"Ladestand aktuell {battery_soc_pct:.0f} %.",
+                    message=f"Ladestand aktuell {battery_soc_pct:.0f} %." + _context_suffix(pv_power_w),
                 )
             )
+
+        # Only counts as an anomaly while there's enough PV to expect it to
+        # cover consumption - otherwise this fires every single night.
+        has_enough_pv = pv_power_w is not None and pv_power_w >= self._grid_import_alert_min_pv_w
+        if grid_power_w is not None:
+            notify = (
+                self._grid_import.evaluate(grid_power_w, now)
+                if has_enough_pv
+                else self._grid_import.evaluate(0, now)
+            )
+            if notify:
+                decisions.append(
+                    Decision(
+                        title="⚡ Netzbezug erkannt",
+                        message=(
+                            f"Aktuell {abs(grid_power_w):.0f} W Bezug vom Netz trotz "
+                            f"{pv_power_w:.0f} W PV-Leistung – ungewöhnlich, ggf. "
+                            "Ursache prüfen." + _context_suffix(None, battery_soc_pct)
+                        ),
+                        priority="urgent",
+                    )
+                )
 
         return decisions

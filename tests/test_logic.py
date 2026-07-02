@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+from solar_push.daily_summary import DailyEnergyTracker
 from solar_push.logic import Evaluator, ThresholdWatcher
 
 
@@ -10,6 +11,8 @@ def make_evaluator(**overrides):
         hysteresis_w=200,
         battery_low_soc_pct=95,
         battery_low_hysteresis_pct=2,
+        grid_import_alert_w=200,
+        grid_import_alert_min_pv_w=500,
         cooldown_minutes=15,
         renotify_minutes=45,
     )
@@ -53,6 +56,33 @@ def test_battery_low_soc_notifies():
     assert "🔋 Speicher niedrig" in titles(d1)
 
 
+def test_grid_import_above_alert_notifies_with_enough_pv():
+    ev = make_evaluator()
+    t0 = datetime(2024, 1, 1, 13, 0)
+    d1 = ev.evaluate(grid_power_w=-300, pv_power_w=800, now=t0)
+    assert "⚡ Netzbezug erkannt" in titles(d1)
+    assert d1[0].priority == "urgent"
+
+
+def test_small_grid_import_does_not_notify():
+    ev = make_evaluator()
+    t0 = datetime(2024, 1, 1, 13, 0)
+    d1 = ev.evaluate(grid_power_w=-50, pv_power_w=800, now=t0)
+    assert d1 == []
+
+
+def test_grid_import_at_night_does_not_notify():
+    # Same import as the "notifies" case above, but without enough PV -
+    # this is the normal nightly situation and shouldn't alert.
+    ev = make_evaluator()
+    t0 = datetime(2024, 1, 1, 22, 0)
+    d1 = ev.evaluate(grid_power_w=-300, pv_power_w=0, now=t0)
+    assert d1 == []
+
+    d2 = ev.evaluate(grid_power_w=-300, pv_power_w=None, now=t0 + timedelta(minutes=1))
+    assert d2 == []
+
+
 def test_grid_and_battery_signals_are_independent():
     ev = make_evaluator()
     t0 = datetime(2024, 1, 1, 12, 0)
@@ -62,6 +92,14 @@ def test_grid_and_battery_signals_are_independent():
         "⚠️ Speicher wird stark entladen",
         "🔋 Speicher niedrig",
     }
+
+
+def test_message_includes_pv_and_battery_context():
+    ev = make_evaluator()
+    t0 = datetime(2024, 1, 1, 12, 0)
+    decisions = ev.evaluate(grid_power_w=1500, pv_power_w=2200, battery_soc_pct=80, now=t0)
+    assert "PV: 2200 W" in decisions[0].message
+    assert "Speicher: 80 %" in decisions[0].message
 
 
 def test_hysteresis_prevents_flapping_near_threshold():
@@ -117,3 +155,36 @@ def test_below_direction_for_low_battery_soc():
 
     # Recovers past the hysteresis band -> no longer low.
     assert watcher.evaluate(98, now=t0 + timedelta(minutes=3)) is False
+
+
+def test_daily_summary_accumulates_and_fires_once_after_hour():
+    tracker = DailyEnergyTracker(summary_hour=21)
+    day = datetime(2024, 6, 1, 10, 0)
+
+    # Two hours of 2000W PV, 500W export, no import.
+    tracker.add(pv_power_w=2000, grid_power_w=500, poll_interval_s=3600, now=day)
+    tracker.add(pv_power_w=2000, grid_power_w=500, poll_interval_s=3600, now=day + timedelta(hours=1))
+
+    assert tracker.maybe_build_summary(day + timedelta(hours=2)) is None  # before summary_hour
+
+    summary = tracker.maybe_build_summary(day.replace(hour=21))
+    assert summary is not None
+    assert "4.0 kWh" in summary.message  # PV
+    assert "1.0 kWh" in summary.message  # export
+    assert summary.priority == "low"
+
+    # Only fires once per day.
+    assert tracker.maybe_build_summary(day.replace(hour=22)) is None
+
+
+def test_daily_summary_resets_on_new_day():
+    tracker = DailyEnergyTracker(summary_hour=21)
+    day1 = datetime(2024, 6, 1, 21, 0)
+    tracker.add(pv_power_w=1000, grid_power_w=-200, poll_interval_s=3600, now=day1)
+    assert tracker.maybe_build_summary(day1) is not None
+
+    day2 = datetime(2024, 6, 2, 21, 0)
+    tracker.add(pv_power_w=500, grid_power_w=0, poll_interval_s=3600, now=day2)
+    summary = tracker.maybe_build_summary(day2)
+    assert summary is not None
+    assert "0.5 kWh" in summary.message  # only day2's contribution, not carried over

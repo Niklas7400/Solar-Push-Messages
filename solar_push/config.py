@@ -40,10 +40,14 @@ class Config:
     hysteresis_w: float
     battery_low_soc_pct: float
     battery_low_hysteresis_pct: float
+    grid_import_alert_w: float
+    grid_import_alert_min_pv_w: float
     cooldown_minutes: int
     renotify_minutes: int
     grid_export_positive: bool
     battery_charge_positive: bool
+    daily_summary_enabled: bool
+    daily_summary_hour: int
 
 
 def load_config() -> Config:
@@ -79,8 +83,12 @@ def load_config() -> Config:
         hysteresis_w=_get_float("HYSTERESIS_W", 200),
         battery_low_soc_pct=_get_float("BATTERY_LOW_SOC_PCT", 95),
         battery_low_hysteresis_pct=_get_float("BATTERY_LOW_HYSTERESIS_PCT", 2),
+        grid_import_alert_w=_get_float("GRID_IMPORT_ALERT_W", 200),
+        grid_import_alert_min_pv_w=_get_float("GRID_IMPORT_ALERT_MIN_PV_W", 500),
         cooldown_minutes=_get_int("COOLDOWN_MINUTES", 15),
         renotify_minutes=_get_int("RENOTIFY_MINUTES", 45),
         grid_export_positive=_get_bool("GRID_EXPORT_POSITIVE", True),
         battery_charge_positive=_get_bool("BATTERY_CHARGE_POSITIVE", True),
+        daily_summary_enabled=_get_bool("DAILY_SUMMARY_ENABLED", True),
+        daily_summary_hour=_get_int("DAILY_SUMMARY_HOUR", 21),
     )
