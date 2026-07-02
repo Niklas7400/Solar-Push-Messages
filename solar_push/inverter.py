@@ -30,7 +30,7 @@ class Inverter:
         self._device: Optional[HuaweiSolarDevice] = None
 
     async def connect(self) -> None:
-        client = await create_tcp_client(self._host, self._port, unit_id=self._slave_id)
+        client = create_tcp_client(self._host, self._port, unit_id=self._slave_id)
         self._device = await create_device_instance(client)
 
     async def close(self) -> None:
