@@ -33,9 +33,16 @@ def main() -> None:
     print("=== get_power_status() ===")
     print(client.get_power_status())
 
-    print("\n=== get_plant_flow() ===")
-    flow = client.get_plant_flow(plant_id)
-    print(json.dumps(flow, indent=2, ensure_ascii=False))
+    print("\n=== get_device_ids() ===")
+    devices = client.get_device_ids()
+    print(devices)
+    meter = next((d for d in devices if d["type"] == "Power Sensor"), None)
+
+    if meter is not None:
+        print("\n=== get_real_time_data() for meter ===")
+        print(json.dumps(client.get_real_time_data(meter["deviceDn"]), indent=2, ensure_ascii=False))
+    else:
+        print("\nNo 'Power Sensor' device found on this account.")
 
     print("\n=== get_battery_ids() ===")
     try:

@@ -33,16 +33,19 @@ gegen dieselbe API, die auch die FusionSolar-Web-Oberfläche verwendet —
 kein LAN-Zugriff nötig, dafür:
 
 - dein FusionSolar-Account-Passwort liegt in der `.env` auf dem Pi
-- Daten sind mit ca. 5 Minuten Verzögerung aktuell (bei häufigem Login-Retry
+- Daten sind mit einer gewissen Verzögerung aktuell (bei häufigem Login-Retry
   kann die API laut Projekt-Doku ein Captcha verlangen)
 - inoffizielle API, kann sich jederzeit ändern oder abgeschaltet werden
-- die Netzbezug/-einspeisung-Erkennung (`solar_push/cloud_inverter.py`,
-  `_extract_grid_power_w`) ist ein Best-Effort-Parser der undokumentierten
-  `get_plant_flow()`-Antwort und **noch nicht gegen einen echten Account
-  verifiziert**. Vor dem Produktivbetrieb einmal
-  `python scripts/dump_fusion_solar_flow.py` laufen lassen (liest die
-  Zugangsdaten aus `.env`, gibt sie nie aus) und die rohe JSON-Struktur
-  prüfen bzw. mit dem Projekt teilen, um den Parser zu verifizieren.
+
+PV-Leistung, Netzbezug/-einspeisung und Batterie-Ladestand
+(`solar_push/cloud_inverter.py`) wurden gegen einen echten FusionSolar-Account
+end-to-end getestet (Login, Werte lesen, Push-Zustellung). Die Netzwerte
+kommen direkt vom "Power Sensor"-Gerät (`get_real_time_data`, Signal "Active
+power") — dieselbe physische Smart-Power-Sensor-Quelle wie beim lokalen
+Modbus-Weg, mit demselben Vorzeichen (positiv = Einspeisung). Zum
+Nachvollziehen/Debuggen der rohen API-Antworten:
+`python scripts/dump_fusion_solar_flow.py` (liest die Zugangsdaten aus
+`.env`, gibt sie nie aus).
 
 ## 1. Modbus TCP am Wechselrichter aktivieren
 

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from fusion_solar_py.client import FusionSolarClient
 
@@ -9,46 +9,16 @@ from solar_push.inverter import InverterReading
 log = logging.getLogger(__name__)
 
 
-def _extract_grid_power_w(flow: dict) -> Optional[float]:
-    """Best-effort search for the grid power node in a FusionSolar energy-flow response.
-
-    fusion-solar-py returns get_plant_flow() as a raw, undocumented dict (the
-    structure behind the FusionSolar UI's flow diagram). There's no verified
-    schema for it, so this walks the structure looking for a node whose label
-    mentions "grid"/"netz" with a numeric value, instead of indexing fixed
-    keys that might not match your account's response shape.
-
-    Whatever this returns should be checked with scripts/dump_fusion_solar_flow.py
-    against a real account before being trusted for automated decisions - both
-    the extraction and the sign (import vs. export) are unverified.
-    """
-
-    def walk(node: Any) -> Optional[float]:
-        if isinstance(node, dict):
-            label = str(node.get("name") or node.get("label") or node.get("description") or "").lower()
-            if "grid" in label or "netz" in label:
-                raw_value = node.get("value") or node.get("realValue")
-                if raw_value is not None:
-                    try:
-                        numeric = float(str(raw_value).lower().replace("kw", "").replace("w", "").strip())
-                    except ValueError:
-                        pass
-                    else:
-                        # values containing "kw" were in kW, everything else assumed W
-                        is_kw = "kw" in str(raw_value).lower()
-                        return numeric * 1000 if is_kw else numeric
-            for value in node.values():
-                result = walk(value)
-                if result is not None:
-                    return result
-        elif isinstance(node, list):
-            for item in node:
-                result = walk(item)
-                if result is not None:
-                    return result
-        return None
-
-    return walk(flow)
+def _get_signal(real_time_data: dict, signal_name: str) -> Optional[float]:
+    """Look up a named signal (e.g. "Active power") in a get_real_time_data() response."""
+    for group in real_time_data.get("data", []):
+        for signal in group.get("signals", []):
+            if signal.get("name") == signal_name:
+                try:
+                    return float(signal["realValue"])
+                except (KeyError, TypeError, ValueError):
+                    return None
+    return None
 
 
 class CloudInverter:
@@ -58,9 +28,13 @@ class CloudInverter:
     access to the inverter needed, at the cost of an unofficial API that
     Huawei could change or block at any time, several minutes of data lag
     compared to local Modbus, and your FusionSolar account password living
-    in the environment. Grid power extraction is best-effort (see
-    _extract_grid_power_w); PV power and battery SOC use documented,
-    stable client methods.
+    in the environment.
+
+    Grid power is read as the "Active power" signal directly off the meter
+    device ("Power Sensor" in get_device_ids()) via get_real_time_data() -
+    verified against a real account to carry the same sign convention as the
+    local Modbus power_meter_active_power register (positive = exporting to
+    the grid), since it's the same physical Smart Power Sensor either way.
     """
 
     def __init__(
@@ -77,6 +51,7 @@ class CloudInverter:
         self._plant_id = plant_id
         self._grid_sign = 1 if grid_export_positive else -1
         self._client: Optional[FusionSolarClient] = None
+        self._meter_dn: Optional[str] = None
         self._battery_id: Optional[str] = None
 
     async def connect(self) -> None:
@@ -89,6 +64,15 @@ class CloudInverter:
             if not plant_ids:
                 raise RuntimeError("No FusionSolar plants found for this account")
             self._plant_id = plant_ids[0]
+
+        devices = await asyncio.to_thread(self._client.get_device_ids)
+        meter = next((d for d in devices if d["type"] == "Power Sensor"), None)
+        self._meter_dn = meter["deviceDn"] if meter else None
+        if self._meter_dn is None:
+            log.warning(
+                "No 'Power Sensor' (Smart Power Sensor) device found on this FusionSolar "
+                "account. Without it, grid power can't be read and notifications won't fire."
+            )
 
         try:
             battery_ids = await asyncio.to_thread(self._client.get_battery_ids, self._plant_id)
@@ -107,13 +91,14 @@ class CloudInverter:
         pv_power_w = power_status.current_power_kw * 1000
 
         grid_power_w = None
-        try:
-            flow = await asyncio.to_thread(self._client.get_plant_flow, self._plant_id)
-            grid_power_w = _extract_grid_power_w(flow)
-            if grid_power_w is not None:
-                grid_power_w *= self._grid_sign
-        except Exception:
-            log.debug("Failed to read grid power from FusionSolar plant flow", exc_info=True)
+        if self._meter_dn is not None:
+            try:
+                meter_data = await asyncio.to_thread(self._client.get_real_time_data, self._meter_dn)
+                grid_power_w = _get_signal(meter_data, "Active power")
+                if grid_power_w is not None:
+                    grid_power_w *= self._grid_sign
+            except Exception:
+                log.debug("Failed to read grid power from FusionSolar meter", exc_info=True)
 
         battery_soc_pct = None
         if self._battery_id is not None:
