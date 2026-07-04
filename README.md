@@ -176,6 +176,27 @@ Entladevorgang verifiziert: die Cloud-API meldete einen negativen Rohwert
 (-0.323 kW), während der Speicher nachweislich entlud - die App berechnet
 daraus korrekt eine positive Entladeleistung.
 
+## Nissan Leaf Ladestand-Push (optional, separater Dienst)
+
+Zusätzlich zum Solar-Teil gibt es `nissan_leaf/`, das eine Push-Nachricht
+schickt, sobald der Nissan Leaf einen konfigurierbaren Ladestand
+(`NISSAN_CHARGE_TARGET_PCT`, Standard 80 %) erreicht. Läuft unabhängig vom
+Solar-Teil, teilt sich aber `.env`, `Notifier` (ntfy) und die
+Hysterese/Cooldown/Renotify-Logik (`solar_push/logic.py`).
+
+- Nutzt die inoffizielle NissanConnect-Services-API (nur EU-Region) über
+  einen vendorten Client aus
+  [dan-r/HomeAssistant-NissanConnect](https://github.com/dan-r/HomeAssistant-NissanConnect)
+  (MIT-Lizenz, siehe `nissan_leaf/kamereon/NOTICE.md`)
+- `NISSAN_USERNAME`/`NISSAN_PASSWORD` in `.env` eintragen (dieselben wie in
+  der NissanConnect-Services-App), `NISSAN_VIN` nur bei mehreren Fahrzeugen
+  nötig
+- Daten kommen aus dem Cloud-Cache des Fahrzeugs (kein aktives Aufwecken des
+  Autos), Abfrageintervall bewusst groß (Standard 10 Minuten) um die
+  inoffizielle API nicht zu häufig zu belasten
+- Start: `python -m nissan_leaf` (bzw. `--debug` zum Kalibrieren, analog zu
+  `solar_push`)
+
 ## Tests
 
 Die Entscheidungslogik (`solar_push/logic.py`) ist ohne echte Hardware

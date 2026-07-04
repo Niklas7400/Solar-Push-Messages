@@ -1,0 +1,16 @@
+[Unit]
+Description=Nissan Leaf Push Messages
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Solar-Push-Messages
+EnvironmentFile=/home/pi/Solar-Push-Messages/.env
+ExecStart=/home/pi/Solar-Push-Messages/.venv/bin/python -m nissan_leaf
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

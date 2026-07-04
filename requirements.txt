@@ -3,3 +3,5 @@ tenacity>=8.0  # huawei-solar's tmodbus transport needs this but doesn't declare
 fusion-solar-py>=0.1.2,<0.2
 httpx>=0.27
 python-dotenv>=1.0
+requests>=2.31
+requests_oauthlib>=1.3
