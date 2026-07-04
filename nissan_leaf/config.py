@@ -27,6 +27,7 @@ class NissanConfig:
     hysteresis_pct: float
     cooldown_minutes: int
     renotify_minutes: int
+    refresh_wait_s: float
 
 
 def load_nissan_config() -> NissanConfig:
@@ -46,4 +47,5 @@ def load_nissan_config() -> NissanConfig:
         hysteresis_pct=_get_float("NISSAN_HYSTERESIS_PCT", 2),
         cooldown_minutes=_get_int("NISSAN_COOLDOWN_MINUTES", 15),
         renotify_minutes=_get_int("NISSAN_RENOTIFY_MINUTES", 240),
+        refresh_wait_s=_get_float("NISSAN_REFRESH_WAIT_SECONDS", 25),
     )

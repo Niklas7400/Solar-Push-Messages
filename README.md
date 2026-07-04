@@ -191,9 +191,13 @@ Hysterese/Cooldown/Renotify-Logik (`solar_push/logic.py`).
 - `NISSAN_USERNAME`/`NISSAN_PASSWORD` in `.env` eintragen (dieselben wie in
   der NissanConnect-Services-App), `NISSAN_VIN` nur bei mehreren Fahrzeugen
   nötig
-- Daten kommen aus dem Cloud-Cache des Fahrzeugs (kein aktives Aufwecken des
-  Autos), Abfrageintervall bewusst groß (Standard 10 Minuten) um die
-  inoffizielle API nicht zu häufig zu belasten
+- Vor jeder Abfrage weckt der Dienst das Auto aktiv auf
+  (`refresh_battery_status`, wie der Refresh-Button in der App) statt nur
+  den ggf. stundenalten Cloud-Cache zu lesen — ohne das kann der gemeldete
+  Ladestand mehrere Stunden hinterherhängen. Abfrageintervall bewusst groß
+  (Standard 10 Minuten), sowohl um die inoffizielle API nicht zu häufig zu
+  belasten als auch wegen des zusätzlichen 12V-Batterieverbrauchs durch das
+  Aufwecken (siehe `NISSAN_REFRESH_WAIT_SECONDS` in `.env.example`)
 - Start: `python -m nissan_leaf` (bzw. `--debug` zum Kalibrieren, analog zu
   `solar_push`)
 

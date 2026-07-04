@@ -13,7 +13,12 @@ log = logging.getLogger("nissan_leaf")
 
 async def run(debug: bool) -> None:
     config = load_nissan_config()
-    leaf = NissanLeaf(username=config.username, password=config.password, vin=config.vin)
+    leaf = NissanLeaf(
+        username=config.username,
+        password=config.password,
+        vin=config.vin,
+        refresh_wait_s=config.refresh_wait_s,
+    )
     notifier = Notifier(config.ntfy_url, config.ntfy_topic)
     watcher = ThresholdWatcher(
         threshold=config.charge_target_pct,
