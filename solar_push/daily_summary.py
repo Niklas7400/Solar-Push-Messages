@@ -46,6 +46,12 @@ class DailyEnergyTracker:
         now = now or datetime.now()
         if now.hour < self._summary_hour or self._last_summary_date == now.date():
             return None
+        if self._tracking_date != now.date():
+            # No add() call yet for today - e.g. the process just (re)started
+            # after the summary hour. Sending a summary now would just show
+            # zeros; wait for the next add() so this only fires once real
+            # data has actually been collected today.
+            return None
         self._last_summary_date = now.date()
 
         return Decision(

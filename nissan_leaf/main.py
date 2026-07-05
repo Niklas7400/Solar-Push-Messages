@@ -34,21 +34,26 @@ async def run(debug: bool) -> None:
 
     try:
         while True:
-            reading = await leaf.read()
-            log.info(
-                "Ladestand=%s%% Lädt=%s Angesteckt=%s",
-                f"{reading.battery_level_pct:.0f}" if reading.battery_level_pct is not None else "n/a",
-                reading.charging,
-                reading.plugged_in,
-            )
+            try:
+                reading = await leaf.read()
+                log.info(
+                    "Ladestand=%s%% Lädt=%s Angesteckt=%s",
+                    f"{reading.battery_level_pct:.0f}" if reading.battery_level_pct is not None else "n/a",
+                    reading.charging,
+                    reading.plugged_in,
+                )
 
-            if reading.battery_level_pct is not None and not debug:
-                if watcher.evaluate(reading.battery_level_pct):
-                    log.info("Sende Benachrichtigung: Ladestand erreicht")
-                    notifier.send(
-                        "🔌 Ladestand erreicht",
-                        f"Der Nissan Leaf hat {reading.battery_level_pct:.0f} % Ladestand erreicht.",
-                    )
+                if reading.battery_level_pct is not None and not debug:
+                    if watcher.evaluate(reading.battery_level_pct):
+                        log.info("Sende Benachrichtigung: Ladestand erreicht")
+                        notifier.send(
+                            "🔌 Ladestand erreicht",
+                            f"Der Nissan Leaf hat {reading.battery_level_pct:.0f} % Ladestand erreicht.",
+                        )
+            except Exception:
+                log.exception(
+                    "Fehler in diesem Abfragezyklus, überspringe und versuche es beim nächsten Intervall erneut"
+                )
 
             await asyncio.sleep(config.poll_interval_s)
     finally:

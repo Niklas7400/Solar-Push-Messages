@@ -60,41 +60,46 @@ async def run(debug: bool) -> None:
 
     try:
         while True:
-            reading = await inverter.read()
-            log.info(
-                "PV=%.0fW Grid=%s Batterie=%s%% Speicherleistung=%s",
-                reading.pv_power_w,
-                f"{reading.grid_power_w:.0f}W" if reading.grid_power_w is not None else "n/a",
-                f"{reading.battery_soc_pct:.0f}" if reading.battery_soc_pct is not None else "n/a",
-                f"{reading.battery_discharge_w:.0f}W" if reading.battery_discharge_w is not None else "n/a",
-            )
-
-            if reading.grid_power_w is None and reading.battery_discharge_w is None:
-                log.warning(
-                    "Weder Netz- noch Speicher-Leistungsmesswert verfügbar. "
-                    "Benachrichtigungen sind ohne mindestens einen davon nicht möglich."
+            try:
+                reading = await inverter.read()
+                log.info(
+                    "PV=%.0fW Grid=%s Batterie=%s%% Speicherleistung=%s",
+                    reading.pv_power_w,
+                    f"{reading.grid_power_w:.0f}W" if reading.grid_power_w is not None else "n/a",
+                    f"{reading.battery_soc_pct:.0f}" if reading.battery_soc_pct is not None else "n/a",
+                    f"{reading.battery_discharge_w:.0f}W" if reading.battery_discharge_w is not None else "n/a",
                 )
 
-            now = datetime.now()
-            if daily_tracker is not None:
-                daily_tracker.add(reading.pv_power_w, reading.grid_power_w, config.poll_interval_s, now)
+                if reading.grid_power_w is None and reading.battery_discharge_w is None:
+                    log.warning(
+                        "Weder Netz- noch Speicher-Leistungsmesswert verfügbar. "
+                        "Benachrichtigungen sind ohne mindestens einen davon nicht möglich."
+                    )
 
-            if not debug:
-                decisions = evaluator.evaluate(
-                    grid_power_w=reading.grid_power_w,
-                    battery_discharge_w=reading.battery_discharge_w,
-                    battery_soc_pct=reading.battery_soc_pct,
-                    pv_power_w=reading.pv_power_w,
-                    now=now,
-                )
+                now = datetime.now()
                 if daily_tracker is not None:
-                    summary = daily_tracker.maybe_build_summary(now)
-                    if summary is not None:
-                        decisions.append(summary)
+                    daily_tracker.add(reading.pv_power_w, reading.grid_power_w, config.poll_interval_s, now)
 
-                for decision in decisions:
-                    log.info("Sende Benachrichtigung: %s", decision.title)
-                    notifier.send(decision.title, decision.message, priority=decision.priority)
+                if not debug:
+                    decisions = evaluator.evaluate(
+                        grid_power_w=reading.grid_power_w,
+                        battery_discharge_w=reading.battery_discharge_w,
+                        battery_soc_pct=reading.battery_soc_pct,
+                        pv_power_w=reading.pv_power_w,
+                        now=now,
+                    )
+                    if daily_tracker is not None:
+                        summary = daily_tracker.maybe_build_summary(now)
+                        if summary is not None:
+                            decisions.append(summary)
+
+                    for decision in decisions:
+                        log.info("Sende Benachrichtigung: %s", decision.title)
+                        notifier.send(decision.title, decision.message, priority=decision.priority)
+            except Exception:
+                log.exception(
+                    "Fehler in diesem Abfragezyklus, überspringe und versuche es beim nächsten Intervall erneut"
+                )
 
             await asyncio.sleep(config.poll_interval_s)
     finally:

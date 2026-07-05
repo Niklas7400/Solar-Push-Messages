@@ -188,3 +188,15 @@ def test_daily_summary_resets_on_new_day():
     summary = tracker.maybe_build_summary(day2)
     assert summary is not None
     assert "0.5 kWh" in summary.message  # only day2's contribution, not carried over
+
+
+def test_daily_summary_skips_if_no_data_collected_yet_today():
+    # Simulates a process (re)start after summary_hour, before any add() call
+    # for today - sending now would just show zeros.
+    tracker = DailyEnergyTracker(summary_hour=21)
+    assert tracker.maybe_build_summary(datetime(2024, 6, 1, 21, 30)) is None
+
+    # Once real data comes in, it should fire normally.
+    tracker.add(pv_power_w=1000, grid_power_w=200, poll_interval_s=3600, now=datetime(2024, 6, 1, 21, 35))
+    summary = tracker.maybe_build_summary(datetime(2024, 6, 1, 21, 40))
+    assert summary is not None
