@@ -32,10 +32,14 @@ async def run(debug: bool) -> None:
     await leaf.connect()
     log.info("Verbunden. Starte Abfrage alle %ss.", config.poll_interval_s)
 
+    consecutive_failures = 0
+    max_consecutive_failures = 3
+
     try:
         while True:
             try:
                 reading = await leaf.read()
+                consecutive_failures = 0
                 log.info(
                     "Ladestand=%s%% Lädt=%s Angesteckt=%s",
                     f"{reading.battery_level_pct:.0f}" if reading.battery_level_pct is not None else "n/a",
@@ -51,9 +55,26 @@ async def run(debug: bool) -> None:
                             f"Der Nissan Leaf hat {reading.battery_level_pct:.0f} % Ladestand erreicht.",
                         )
             except Exception:
+                consecutive_failures += 1
                 log.exception(
-                    "Fehler in diesem Abfragezyklus, überspringe und versuche es beim nächsten Intervall erneut"
+                    "Fehler in diesem Abfragezyklus (%d in Folge), überspringe und versuche es beim "
+                    "nächsten Intervall erneut",
+                    consecutive_failures,
                 )
+                if consecutive_failures >= max_consecutive_failures:
+                    log.warning(
+                        "%d Fehlversuche in Folge, versuche komplette Neuverbindung", consecutive_failures
+                    )
+                    try:
+                        await leaf.close()
+                    except Exception:
+                        log.debug("Fehler beim Schließen vor Neuverbindung", exc_info=True)
+                    try:
+                        await leaf.connect()
+                        log.info("Neuverbindung erfolgreich")
+                        consecutive_failures = 0
+                    except Exception:
+                        log.exception("Neuverbindung fehlgeschlagen, versuche es beim nächsten Intervall erneut")
 
             await asyncio.sleep(config.poll_interval_s)
     finally:
